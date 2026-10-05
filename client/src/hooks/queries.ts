@@ -7,16 +7,28 @@ import {
   categoriesApi,
   goalsApi,
   notificationsApi,
+  recurringApi,
+  reportsApi,
   transactionsApi,
 } from '../services/endpoints';
-import type { BudgetInput, Category, GoalInput, TransactionFilters, TransactionInput, TransactionType } from '../types';
+import type {
+  BudgetInput,
+  Category,
+  GoalInput,
+  RecurringInput,
+  TransactionFilters,
+  TransactionInput,
+  TransactionType,
+} from '../types';
 
 export const keys = {
   transactions: ['transactions'] as const,
+  recurring: ['recurring'] as const,
   categories: ['categories'] as const,
   budgets: ['budgets'] as const,
   goals: ['goals'] as const,
   analytics: ['analytics'] as const,
+  reports: ['reports'] as const,
   notifications: ['notifications'] as const,
 };
 
@@ -24,11 +36,13 @@ export const keys = {
  * Any change to money data invalidates every derived view so the dashboard,
  * budgets and analytics recalculate immediately from the API.
  */
-function useInvalidateFinance() {
+export function useInvalidateFinance() {
   const qc = useQueryClient();
   return () =>
     Promise.all([
       qc.invalidateQueries({ queryKey: keys.transactions }),
+      qc.invalidateQueries({ queryKey: keys.recurring }),
+      qc.invalidateQueries({ queryKey: keys.reports }),
       qc.invalidateQueries({ queryKey: keys.budgets }),
       qc.invalidateQueries({ queryKey: keys.analytics }),
       qc.invalidateQueries({ queryKey: keys.notifications }),
@@ -62,12 +76,57 @@ export function useSaveTransaction() {
 export function useDeleteTransaction() {
   const invalidate = useInvalidateFinance();
   return useMutation({
-    mutationFn: transactionsApi.remove,
+    mutationFn: (id: string) => transactionsApi.remove(id),
     onSuccess: () => {
       toast.success('Transaction deleted');
       return invalidate();
     },
     onError: onError('Could not delete transaction'),
+  });
+}
+
+// ---------- Recurring transactions ----------
+export const useRecurring = () => useQuery({ queryKey: keys.recurring, queryFn: () => recurringApi.list() });
+
+export function useSaveRecurring() {
+  const invalidate = useInvalidateFinance();
+  return useMutation({
+    mutationFn: ({ id, data }: { id?: string; data: RecurringInput }) =>
+      id ? recurringApi.update(id, data) : recurringApi.create(data),
+    onSuccess: (rule, vars) => {
+      toast.success(
+        vars.id
+          ? 'Recurring transaction updated'
+          : rule.occurrenceCount > 0
+            ? `Recurring transaction created · ${rule.occurrenceCount} past occurrence(s) added`
+            : 'Recurring transaction created',
+      );
+      return invalidate();
+    },
+  });
+}
+
+export function useToggleRecurring() {
+  const invalidate = useInvalidateFinance();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: RecurringInput }) => recurringApi.update(id, data),
+    onSuccess: (rule) => {
+      toast.success(rule.isActive ? 'Recurring transaction resumed' : 'Recurring transaction paused');
+      return invalidate();
+    },
+    onError: onError('Could not update recurring transaction'),
+  });
+}
+
+export function useDeleteRecurring() {
+  const invalidate = useInvalidateFinance();
+  return useMutation({
+    mutationFn: (id: string) => recurringApi.remove(id),
+    onSuccess: () => {
+      toast.success('Recurring transaction deleted · past transactions were kept');
+      return invalidate();
+    },
+    onError: onError('Could not delete recurring transaction'),
   });
 }
 
@@ -94,7 +153,7 @@ export function useSaveCategory() {
 export function useDeleteCategory() {
   const invalidate = useInvalidateFinance();
   return useMutation({
-    mutationFn: categoriesApi.remove,
+    mutationFn: (id: string) => categoriesApi.remove(id),
     onSuccess: (res) => {
       toast.success(
         res.reassignedTransactions
@@ -126,7 +185,7 @@ export function useSaveBudget() {
 export function useDeleteBudget() {
   const invalidate = useInvalidateFinance();
   return useMutation({
-    mutationFn: budgetsApi.remove,
+    mutationFn: (id: string) => budgetsApi.remove(id),
     onSuccess: () => {
       toast.success('Budget deleted');
       return invalidate();
@@ -136,7 +195,8 @@ export function useDeleteBudget() {
 }
 
 // ---------- Goals ----------
-export const useGoals = () => useQuery({ queryKey: keys.goals, queryFn: goalsApi.list });
+// API calls are always wrapped: React Query's context argument must not reach the data layer
+export const useGoals = () => useQuery({ queryKey: keys.goals, queryFn: () => goalsApi.list() });
 
 export function useSaveGoal() {
   const invalidate = useInvalidateFinance();
@@ -163,7 +223,7 @@ export function useContributeGoal() {
 export function useDeleteGoal() {
   const invalidate = useInvalidateFinance();
   return useMutation({
-    mutationFn: goalsApi.remove,
+    mutationFn: (id: string) => goalsApi.remove(id),
     onSuccess: () => {
       toast.success('Goal deleted');
       return invalidate();
@@ -201,16 +261,24 @@ export const useDaily = (period: { year: number; month: number }) =>
     placeholderData: keepPreviousData,
   });
 
+// ---------- Reports ----------
+export const useMonthlyReport = (period: { year: number; month: number }) =>
+  useQuery({
+    queryKey: [...keys.reports, 'monthly', period],
+    queryFn: () => reportsApi.monthly(period),
+    placeholderData: keepPreviousData,
+  });
+
 // ---------- Notifications ----------
 export const useNotifications = () =>
-  useQuery({ queryKey: keys.notifications, queryFn: notificationsApi.list, refetchInterval: 60_000 });
+  useQuery({ queryKey: keys.notifications, queryFn: () => notificationsApi.list(), refetchInterval: 60_000 });
 
 export function useNotificationActions() {
   const qc = useQueryClient();
   const refresh = () => qc.invalidateQueries({ queryKey: keys.notifications });
   return {
-    markRead: useMutation({ mutationFn: notificationsApi.markRead, onSuccess: refresh }),
-    markAllRead: useMutation({ mutationFn: notificationsApi.markAllRead, onSuccess: refresh }),
-    remove: useMutation({ mutationFn: notificationsApi.remove, onSuccess: refresh }),
+    markRead: useMutation({ mutationFn: (id: string) => notificationsApi.markRead(id), onSuccess: refresh }),
+    markAllRead: useMutation({ mutationFn: () => notificationsApi.markAllRead(), onSuccess: refresh }),
+    remove: useMutation({ mutationFn: (id: string) => notificationsApi.remove(id), onSuccess: refresh }),
   };
 }

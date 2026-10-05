@@ -1,8 +1,9 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { Bell, KeyRound, Monitor, Moon, Palette, Sun, Trash2, User } from 'lucide-react';
+import { Bell, Database, KeyRound, Monitor, Moon, Palette, Sun, Trash2, User } from 'lucide-react';
 import { toast } from 'sonner';
+import { DataManagement } from '../components/settings/DataManagement';
 import { Button } from '../components/ui/Button';
 import { Card, PageHeader } from '../components/ui/Display';
 import { Input, Select, Toggle } from '../components/ui/Field';
@@ -201,6 +202,10 @@ export default function SettingsPage() {
               onChange={(v) => savePreference({ notifyMonthlySummary: v })}
             />
           </div>
+        </Section>
+
+        <Section icon={<Database className="h-4 w-4" />} title="Data & backup" description="Export transactions, back up everything, or restore from a backup file.">
+          <DataManagement />
         </Section>
 
         <Section icon={<KeyRound className="h-4 w-4" />} title="Change password" description="Use at least 8 characters with a letter and a number.">

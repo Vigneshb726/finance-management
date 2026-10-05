@@ -1,9 +1,14 @@
+// Response types shared with the server/offline engine (type-only — nothing is bundled)
+export type { BackupFile, MonthlyReport } from '@finora/core';
+
 export type TransactionType = 'INCOME' | 'EXPENSE';
 export type PaymentMethod = 'CASH' | 'UPI' | 'CREDIT_CARD' | 'DEBIT_CARD' | 'BANK_TRANSFER' | 'OTHER';
 export type ThemePreference = 'LIGHT' | 'DARK' | 'SYSTEM';
 export type BudgetStatus = 'ON_TRACK' | 'WARNING' | 'EXCEEDED';
 export type GoalStatus = 'IN_PROGRESS' | 'COMPLETED' | 'OVERDUE';
 export type NotificationType = 'BUDGET_EXCEEDED' | 'BUDGET_WARNING' | 'GOAL_MILESTONE' | 'MONTHLY_SUMMARY' | 'SYSTEM';
+export type RecurrenceFrequency = 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'YEARLY';
+export type RecurringStatus = 'ACTIVE' | 'PAUSED' | 'COMPLETED';
 
 export interface User {
   id: string;
@@ -45,6 +50,7 @@ export interface Transaction {
   notes: string | null;
   categoryId: string;
   category: CategoryRef;
+  recurringId: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -72,10 +78,45 @@ export interface TransactionFilters {
   sortOrder: 'asc' | 'desc';
 }
 
+export type ExportFilters = Omit<TransactionFilters, 'page' | 'pageSize'>;
+
 export interface Paginated<T> {
   data: T[];
   pagination: { page: number; pageSize: number; total: number; totalPages: number };
   totals: { income: number; expense: number; net: number };
+}
+
+export interface RecurringTransaction {
+  id: string;
+  type: TransactionType;
+  amount: number;
+  description: string;
+  categoryId: string;
+  category: CategoryRef;
+  paymentMethod: PaymentMethod;
+  notes: string | null;
+  frequency: RecurrenceFrequency;
+  interval: number;
+  startDate: string;
+  endDate: string | null;
+  nextDate: string | null;
+  occurrenceCount: number;
+  isActive: boolean;
+  status: RecurringStatus;
+}
+
+export interface RecurringInput {
+  type: TransactionType;
+  amount: number;
+  categoryId: string;
+  description: string;
+  paymentMethod: PaymentMethod;
+  notes?: string | null;
+  frequency: RecurrenceFrequency;
+  interval: number;
+  startDate: string;
+  endDate: string | null;
+  isActive: boolean;
 }
 
 export interface UsageFigures {
@@ -190,4 +231,18 @@ export interface AppNotification {
   message: string;
   isRead: boolean;
   createdAt: string;
+}
+
+export interface RestoreResult {
+  categories: number;
+  transactions: number;
+  recurring: number;
+  budgets: number;
+  goals: number;
+  notifications: number;
+}
+
+export interface CsvExport {
+  filename: string;
+  content: string;
 }

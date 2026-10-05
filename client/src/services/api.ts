@@ -37,11 +37,12 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-/** Called when the API rejects our token — wired up by AuthProvider. */
+/** Called when the session is no longer valid — wired up by AuthProvider. */
 let onUnauthorized: (() => void) | null = null;
 export const setUnauthorizedHandler = (fn: () => void) => {
   onUnauthorized = fn;
 };
+export const notifyUnauthorized = () => onUnauthorized?.();
 
 api.interceptors.response.use(
   (res) => res,
@@ -49,14 +50,32 @@ api.interceptors.response.use(
     const url = error.config?.url ?? '';
     if (error.response?.status === 401 && !url.includes('/auth/login') && !url.includes('/auth/register')) {
       tokenStore.clear();
-      onUnauthorized?.();
+      notifyUnauthorized();
     }
     return Promise.reject(error);
   },
 );
 
+/** Error raised by the offline (desktop/mobile) data layer — same status and body as the HTTP API. */
+interface LocalApiError {
+  name: 'ApiError';
+  status: number;
+  body: { message: string; errors?: { field: string; message: string }[] };
+}
+
+const isLocalApiError = (error: unknown): error is LocalApiError =>
+  !!error && typeof error === 'object' && (error as { name?: unknown }).name === 'ApiError' && 'body' in error;
+
+/** HTTP-style status of any API error (undefined for network failures). */
+export function errorStatus(error: unknown): number | undefined {
+  if (isLocalApiError(error)) return error.status;
+  if (axios.isAxiosError(error)) return error.response?.status;
+  return undefined;
+}
+
 /** Extracts a human-readable message from any API error. */
 export function getErrorMessage(error: unknown, fallback = 'Something went wrong. Please try again.'): string {
+  if (isLocalApiError(error)) return error.body.message || fallback;
   if (axios.isAxiosError(error)) {
     if (!error.response) return 'Cannot reach the server. Check your connection and that the API is running.';
     const data = error.response.data as { message?: string } | undefined;
@@ -66,9 +85,12 @@ export function getErrorMessage(error: unknown, fallback = 'Something went wrong
   return fallback;
 }
 
-/** Field-level validation errors from the API (400 responses). */
+/** Field-level validation errors (400 responses). */
 export function getFieldErrors(error: unknown): Record<string, string> {
-  if (!axios.isAxiosError(error)) return {};
-  const errors = (error.response?.data as { errors?: { field: string; message: string }[] })?.errors ?? [];
+  const errors = isLocalApiError(error)
+    ? (error.body.errors ?? [])
+    : axios.isAxiosError(error)
+      ? ((error.response?.data as { errors?: { field: string; message: string }[] })?.errors ?? [])
+      : [];
   return Object.fromEntries(errors.map((e) => [e.field, e.message]));
 }

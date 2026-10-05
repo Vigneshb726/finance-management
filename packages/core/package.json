@@ -1,0 +1,32 @@
+{
+  "name": "@finora/core",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Shared finance domain logic: validation, calculations and data services for PostgreSQL (server) and SQLite (desktop/mobile)",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.build.json --watch --preserveWatchOutput",
+    "lint": "eslint . && tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "kysely": "^0.28.17",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^26.6.4",
+    "better-sqlite3": "^13.0.3",
+    "eslint": "^9.39.5",
+    "globals": "^17.13.0",
+    "typescript": "~5.8",
+    "typescript-eslint": "^8.71.0",
+    "vitest": "^5.0.3"
+  }
+}

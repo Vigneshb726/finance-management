@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { setUnauthorizedHandler, tokenStore } from '../services/api';
+import { isOfflineApp } from '../services/backend';
 import { authApi } from '../services/endpoints';
 import type { User } from '../types';
 
@@ -15,15 +16,19 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+/** Web sessions are a JWT in storage; installed apps keep their session in the local data layer. */
+const hasStoredSession = () => isOfflineApp() || !!tokenStore.get();
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const [user, setUser] = useState<User | null>(null);
-  const [isLoading, setIsLoading] = useState(() => !!tokenStore.get());
+  const [isLoading, setIsLoading] = useState(hasStoredSession);
 
   const logout = useCallback(() => {
     tokenStore.clear();
     setUser(null);
     queryClient.clear();
+    void authApi.logout().catch(() => undefined);
   }, [queryClient]);
 
   useEffect(() => {
@@ -33,9 +38,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   }, [queryClient]);
 
-  // Restore the session from a stored token
+  // Restore the previous session
   useEffect(() => {
-    if (!tokenStore.get()) return;
+    if (!hasStoredSession()) return;
     authApi
       .me()
       .then(setUser)
@@ -45,13 +50,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(async (email: string, password: string) => {
     const res = await authApi.login({ email, password });
-    tokenStore.set(res.token);
+    if (!isOfflineApp()) tokenStore.set(res.token);
     setUser(res.user);
   }, []);
 
   const register = useCallback(async (name: string, email: string, password: string) => {
     const res = await authApi.register({ name, email, password });
-    tokenStore.set(res.token);
+    if (!isOfflineApp()) tokenStore.set(res.token);
     setUser(res.user);
   }, []);
 

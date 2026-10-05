@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "sourceMap": true,
+    "declaration": true,
+    // Core runs in browsers and WebViews too — no Node.js globals in the shipped code
+    "types": []
+  },
+  "include": ["src"]
+}

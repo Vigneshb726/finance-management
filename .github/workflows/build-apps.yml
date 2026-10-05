@@ -1,0 +1,205 @@
+# Builds the installable apps on GitHub's cloud machines — no Mac (or Linux box) needed locally.
+#
+#   Run manually:  Actions → "Build apps" → Run workflow
+#   Release:       push a tag like v1.0.0 — the files are attached to a GitHub Release
+#
+# Every job works without any secrets (unsigned builds). Add the optional secrets listed in
+# README → "Building the apps" to produce signed, store-ready builds.
+name: Build apps
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  desktop:
+    name: Desktop (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: --win
+            files: desktop/release/*.exe
+          - os: macos-latest
+            target: --mac
+            files: desktop/release/*.dmg
+          - os: ubuntu-latest
+            target: --linux
+            files: |
+              desktop/release/*.AppImage
+              desktop/release/*.deb
+    runs-on: ${{ matrix.os }}
+    env:
+      # Optional code signing (Windows: .pfx, macOS: Developer ID .p12), base64-encoded
+      CSC_LINK: ${{ secrets.DESKTOP_CSC_LINK }}
+      CSC_KEY_PASSWORD: ${{ secrets.DESKTOP_CSC_KEY_PASSWORD }}
+      # Optional macOS notarization
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            desktop/package-lock.json
+      - run: npm ci
+      - run: npm ci --prefix desktop
+      - name: Skip code signing when no certificate is configured
+        if: env.CSC_LINK == ''
+        shell: bash
+        run: echo "CSC_IDENTITY_AUTO_DISCOVERY=false" >> "$GITHUB_ENV"
+      - name: Enable notarization when Apple credentials are configured
+        if: runner.os == 'macOS' && env.APPLE_ID != '' && env.CSC_LINK != ''
+        shell: bash
+        run: echo "NOTARIZE_ARGS=-c.mac.notarize=true" >> "$GITHUB_ENV"
+      - name: Build installer
+        working-directory: desktop
+        shell: bash
+        run: npm run build && npx electron-builder ${{ matrix.target }} --publish never $NOTARIZE_ARGS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: finora-desktop-${{ runner.os }}
+          path: ${{ matrix.files }}
+          if-no-files-found: error
+
+  android:
+    name: Android
+    runs-on: ubuntu-latest
+    env:
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+      - run: npm ci
+      - name: Build web app and sync it into the Android project
+        run: npm run cap:sync -w client
+      - name: Debug APK (installable for testing)
+        working-directory: client/android
+        run: ./gradlew assembleDebug --no-daemon
+      - name: Signed release APK and App Bundle
+        if: env.ANDROID_KEYSTORE_BASE64 != ''
+        working-directory: client/android
+        run: |
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release.keystore"
+          export ANDROID_KEYSTORE_PATH="$RUNNER_TEMP/release.keystore"
+          ./gradlew assembleRelease bundleRelease --no-daemon
+      - uses: actions/upload-artifact@v4
+        with:
+          name: finora-android
+          path: |
+            client/android/app/build/outputs/apk/debug/*.apk
+            client/android/app/build/outputs/apk/release/*.apk
+            client/android/app/build/outputs/bundle/release/*.aab
+          if-no-files-found: error
+
+  ios:
+    name: iOS
+    runs-on: macos-latest
+    env:
+      IOS_CERTIFICATE_P12_BASE64: ${{ secrets.IOS_CERTIFICATE_P12_BASE64 }}
+      IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+      IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+      IOS_TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Build web app and sync it into the iOS project
+        run: npm run cap:sync -w client
+      - name: Simulator build (no Apple account needed)
+        working-directory: client/ios/App
+        run: |
+          xcodebuild -project App.xcodeproj -scheme App -configuration Release \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
+          cd build/Build/Products/Release-iphonesimulator && zip -qr "$GITHUB_WORKSPACE/Finora-simulator.zip" App.app
+      - name: Unsigned device archive (sign later, e.g. with Xcode or a signing service)
+        working-directory: client/ios/App
+        run: |
+          xcodebuild -project App.xcodeproj -scheme App -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/Finora.xcarchive" CODE_SIGNING_ALLOWED=NO archive
+          cd "$RUNNER_TEMP" && zip -qr "$GITHUB_WORKSPACE/Finora-unsigned.xcarchive.zip" Finora.xcarchive
+      - name: Signed IPA (TestFlight / ad-hoc)
+        if: env.IOS_CERTIFICATE_P12_BASE64 != '' && env.IOS_PROVISIONING_PROFILE_BASE64 != ''
+        working-directory: client/ios/App
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 16)"
+          echo "$IOS_CERTIFICATE_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/cert.p12" -P "$IOS_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN"
+
+          PROFILE="$RUNNER_TEMP/profile.mobileprovision"
+          echo "$IOS_PROVISIONING_PROFILE_BASE64" | base64 --decode > "$PROFILE"
+          UUID=$(/usr/libexec/PlistBuddy -c "Print UUID" /dev/stdin <<< "$(security cms -D -i "$PROFILE")")
+          PROFILE_NAME=$(/usr/libexec/PlistBuddy -c "Print Name" /dev/stdin <<< "$(security cms -D -i "$PROFILE")")
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          cp "$PROFILE" ~/Library/MobileDevice/Provisioning\ Profiles/"$UUID".mobileprovision
+
+          xcodebuild -project App.xcodeproj -scheme App -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/Signed.xcarchive" \
+            CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM="$IOS_TEAM_ID" \
+            CODE_SIGN_IDENTITY="Apple Distribution" PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" archive
+
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>teamID</key><string>$IOS_TEAM_ID</string>
+            <key>signingStyle</key><string>manual</string>
+            <key>provisioningProfiles</key><dict><key>app.finora.finance</key><string>$PROFILE_NAME</string></dict>
+          </dict></plist>
+          EOF
+          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/Signed.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" -exportPath "$GITHUB_WORKSPACE/ipa"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: finora-ios
+          path: |
+            Finora-simulator.zip
+            Finora-unsigned.xcarchive.zip
+            ipa/*.ipa
+          if-no-files-found: error
+
+  release:
+    name: GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [desktop, android, ios]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*
+          generate_release_notes: true

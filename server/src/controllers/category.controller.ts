@@ -1,22 +1,22 @@
+import { categoryQuerySchema, categoryService as service } from '@finora/core';
+import { core } from '../config/db';
 import { getUserId } from '../middleware/auth';
 import { parseQuery } from '../middleware/validate';
-import * as service from '../services/category.service';
 import { asyncHandler } from '../utils/asyncHandler';
-import { categoryQuerySchema } from '../validators/schemas';
 
 export const list = asyncHandler(async (req, res) => {
   const { type } = parseQuery(categoryQuerySchema, req.query);
-  res.json(await service.listCategories(getUserId(req), type));
+  res.json(await service.listCategories(core, getUserId(req), type));
 });
 
 export const create = asyncHandler(async (req, res) => {
-  res.status(201).json(await service.createCategory(getUserId(req), req.body));
+  res.status(201).json(await service.createCategory(core, getUserId(req), req.body));
 });
 
 export const update = asyncHandler(async (req, res) => {
-  res.json(await service.updateCategory(getUserId(req), req.params.id, req.body));
+  res.json(await service.updateCategory(core, getUserId(req), req.params.id, req.body));
 });
 
 export const remove = asyncHandler(async (req, res) => {
-  res.json(await service.deleteCategory(getUserId(req), req.params.id));
+  res.json(await service.deleteCategory(core, getUserId(req), req.params.id));
 });

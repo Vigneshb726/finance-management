@@ -1,15 +1,5 @@
-import { Router } from 'express';
+import express, { Router } from 'express';
 import rateLimit from 'express-rate-limit';
-import { env } from '../config/env';
-import * as analytics from '../controllers/analytics.controller';
-import * as auth from '../controllers/auth.controller';
-import * as budgets from '../controllers/budget.controller';
-import * as categories from '../controllers/category.controller';
-import * as goals from '../controllers/goal.controller';
-import * as notifications from '../controllers/notification.controller';
-import * as transactions from '../controllers/transaction.controller';
-import { requireAuth } from '../middleware/auth';
-import { validateBody } from '../middleware/validate';
 import {
   budgetSchema,
   changePasswordSchema,
@@ -18,12 +8,25 @@ import {
   deleteAccountSchema,
   goalSchema,
   loginSchema,
+  recurringSchema,
   registerSchema,
   transactionSchema,
   updateCategorySchema,
   updateGoalSchema,
   updateProfileSchema,
-} from '../validators/schemas';
+} from '@finora/core';
+import { env } from '../config/env';
+import * as analytics from '../controllers/analytics.controller';
+import * as auth from '../controllers/auth.controller';
+import * as backup from '../controllers/backup.controller';
+import * as budgets from '../controllers/budget.controller';
+import * as categories from '../controllers/category.controller';
+import * as goals from '../controllers/goal.controller';
+import * as notifications from '../controllers/notification.controller';
+import * as recurring from '../controllers/recurring.controller';
+import * as transactions from '../controllers/transaction.controller';
+import { requireAuth } from '../middleware/auth';
+import { validateBody } from '../middleware/validate';
 
 const router = Router();
 
@@ -35,6 +38,10 @@ const authLimiter = rateLimit({
   legacyHeaders: false,
   message: { message: 'Too many attempts. Please try again in a few minutes.' },
 });
+
+// Backups can be far larger than ordinary request bodies
+export const BACKUP_RESTORE_PATH = '/backup/restore';
+const backupBody = express.json({ limit: '25mb' });
 
 // ---------- Auth ----------
 router.post('/auth/register', authLimiter, validateBody(registerSchema), auth.register);
@@ -49,10 +56,18 @@ router.use(requireAuth);
 
 // ---------- Transactions ----------
 router.get('/transactions', transactions.list);
+router.get('/transactions/export', transactions.exportCsv);
 router.get('/transactions/:id', transactions.getOne);
 router.post('/transactions', validateBody(transactionSchema), transactions.create);
 router.put('/transactions/:id', validateBody(transactionSchema), transactions.update);
 router.delete('/transactions/:id', transactions.remove);
+
+// ---------- Recurring transactions ----------
+router.get('/recurring', recurring.list);
+router.get('/recurring/:id', recurring.getOne);
+router.post('/recurring', validateBody(recurringSchema), recurring.create);
+router.put('/recurring/:id', validateBody(recurringSchema), recurring.update);
+router.delete('/recurring/:id', recurring.remove);
 
 // ---------- Categories ----------
 router.get('/categories', categories.list);
@@ -75,16 +90,21 @@ router.put('/goals/:id', validateBody(updateGoalSchema), goals.update);
 router.post('/goals/:id/contribute', validateBody(contributeSchema), goals.contribute);
 router.delete('/goals/:id', goals.remove);
 
-// ---------- Analytics ----------
+// ---------- Analytics & reports ----------
 router.get('/analytics/summary', analytics.summary);
 router.get('/analytics/monthly', analytics.monthly);
 router.get('/analytics/categories', analytics.categories);
 router.get('/analytics/daily', analytics.daily);
+router.get('/reports/monthly', analytics.monthlyReport);
 
 // ---------- Notifications ----------
 router.get('/notifications', notifications.list);
 router.put('/notifications/read-all', notifications.markAllRead);
 router.put('/notifications/:id/read', notifications.markRead);
 router.delete('/notifications/:id', notifications.remove);
+
+// ---------- Backup ----------
+router.get('/backup', backup.create);
+router.post(BACKUP_RESTORE_PATH, backupBody, backup.restore);
 
 export default router;

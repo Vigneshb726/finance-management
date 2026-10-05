@@ -5,11 +5,17 @@
  *   Email:    demo@finance.app
  *   Password: Demo@1234
  */
-import { PrismaClient, type PaymentMethod, type TransactionType } from '@prisma/client';
-import bcrypt from 'bcryptjs';
-import { DEFAULT_CATEGORIES } from '../src/config/defaultCategories';
-
-const prisma = new PrismaClient();
+import {
+  authService,
+  budgetService,
+  categoryService,
+  goalService,
+  recurringService,
+  toPaise,
+  type PaymentMethod,
+  type TransactionType,
+} from '@finora/core';
+import { core, db } from '../src/config/db';
 
 const DEMO_EMAIL = 'demo@finance.app';
 const DEMO_PASSWORD = 'Demo@1234';
@@ -24,7 +30,7 @@ const rand = () => {
 const between = (min: number, max: number) => Math.round(min + rand() * (max - min));
 const pick = <T>(items: T[]) => items[Math.floor(rand() * items.length)];
 
-const utcDate = (year: number, month: number, day: number) => new Date(Date.UTC(year, month - 1, day));
+const isoDate = (year: number, month: number, day: number) => new Date(Date.UTC(year, month - 1, day)).toISOString().slice(0, 10);
 
 interface SeedTx {
   type: TransactionType;
@@ -36,12 +42,10 @@ interface SeedTx {
   notes?: string;
 }
 
+/** One-off transactions; salary, rent and broadband come from recurring rules below. */
 function monthTransactions(monthOffset: number): SeedTx[] {
   const txs: SeedTx[] = [
-    { type: 'INCOME', category: 'Salary', description: 'Monthly salary', amount: 45000, day: 1, paymentMethod: 'BANK_TRANSFER' },
-    { type: 'EXPENSE', category: 'Rent', description: 'House rent', amount: 12000, day: 3, paymentMethod: 'BANK_TRANSFER' },
     { type: 'EXPENSE', category: 'Bills', description: 'Electricity bill', amount: between(1200, 1900), day: 8, paymentMethod: 'UPI' },
-    { type: 'EXPENSE', category: 'Bills', description: 'Mobile & broadband', amount: 999, day: 10, paymentMethod: 'UPI' },
     { type: 'EXPENSE', category: 'Bills', description: 'Water & maintenance', amount: between(800, 1300), day: 12, paymentMethod: 'UPI' },
   ];
 
@@ -76,100 +80,113 @@ function monthTransactions(monthOffset: number): SeedTx[] {
 
 async function main() {
   console.log('🌱 Seeding database...');
-  await prisma.user.deleteMany({ where: { email: DEMO_EMAIL } });
+  await db.deleteFrom('User').where('email', '=', DEMO_EMAIL).execute();
 
-  const user = await prisma.user.create({
-    data: {
-      name: 'Arjun Sharma',
-      email: DEMO_EMAIL,
-      passwordHash: await bcrypt.hash(DEMO_PASSWORD, 12),
-      currency: 'INR',
-      categories: { create: DEFAULT_CATEGORIES.map((c) => ({ ...c, isDefault: true })) },
-    },
-    include: { categories: true },
-  });
-
+  const user = await authService.register(core, { name: 'Arjun Sharma', email: DEMO_EMAIL, password: DEMO_PASSWORD });
+  const categories = await categoryService.listCategories(core, user.id);
   const categoryId = (type: TransactionType, name: string) => {
-    const c = user.categories.find((x) => x.type === type && x.name === name);
+    const c = categories.find((x) => x.type === type && x.name === name);
     if (!c) throw new Error(`Missing category ${type}/${name}`);
     return c.id;
   };
 
   const now = new Date();
-  const today = utcDate(now.getUTCFullYear(), now.getUTCMonth() + 1, now.getUTCDate());
-  const rows = [];
+  const today = now.toISOString().slice(0, 10);
+  const first = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (MONTHS - 1), 1));
+  const firstYear = first.getUTCFullYear();
+  const firstMonth = first.getUTCMonth() + 1;
 
+  // Recurring rules back-fill their past occurrences on creation
+  const rules = [
+    { type: 'INCOME' as const, category: 'Salary', description: 'Monthly salary', amount: 45000, day: 1, paymentMethod: 'BANK_TRANSFER' as const },
+    { type: 'EXPENSE' as const, category: 'Rent', description: 'House rent', amount: 12000, day: 3, paymentMethod: 'BANK_TRANSFER' as const },
+    { type: 'EXPENSE' as const, category: 'Bills', description: 'Mobile & broadband', amount: 999, day: 10, paymentMethod: 'UPI' as const },
+  ];
+  for (const r of rules) {
+    await recurringService.createRecurring(core, user.id, {
+      type: r.type,
+      amount: r.amount,
+      categoryId: categoryId(r.type, r.category),
+      description: r.description,
+      paymentMethod: r.paymentMethod,
+      notes: null,
+      frequency: 'MONTHLY',
+      interval: 1,
+      startDate: isoDate(firstYear, firstMonth, r.day),
+      endDate: null,
+      isActive: true,
+    });
+  }
+
+  const rows = [];
+  const createdAt = now.toISOString();
   for (let offset = MONTHS - 1; offset >= 0; offset--) {
     const ref = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - offset, 1));
     const year = ref.getUTCFullYear();
     const month = ref.getUTCMonth() + 1;
 
     for (const tx of monthTransactions(offset)) {
-      const date = utcDate(year, month, tx.day);
+      const date = isoDate(year, month, tx.day);
       if (date > today) continue; // never create future-dated transactions
       rows.push({
+        id: core.newId(),
         userId: user.id,
         type: tx.type,
-        amount: tx.amount,
+        amount: toPaise(tx.amount),
         description: tx.description,
         date,
         paymentMethod: tx.paymentMethod,
         notes: tx.notes ?? null,
         categoryId: categoryId(tx.type, tx.category),
-      });
-    }
-
-    // Monthly budgets for the last 3 months
-    if (offset <= 2) {
-      await prisma.budget.create({
-        data: {
-          userId: user.id,
-          year,
-          month,
-          totalAmount: 30000,
-          notes: 'Keep discretionary spending in check',
-          categories: {
-            create: [
-              { categoryId: categoryId('EXPENSE', 'Rent'), amount: 12000 },
-              { categoryId: categoryId('EXPENSE', 'Food'), amount: 5000 },
-              { categoryId: categoryId('EXPENSE', 'Bills'), amount: 4000 },
-              { categoryId: categoryId('EXPENSE', 'Transport'), amount: 2500 },
-              { categoryId: categoryId('EXPENSE', 'Shopping'), amount: 3000 },
-              { categoryId: categoryId('EXPENSE', 'Entertainment'), amount: 1500 },
-            ],
-          },
-        },
+        recurringId: null,
+        createdAt,
+        updatedAt: createdAt,
       });
     }
   }
+  await db.insertInto('Transaction').values(rows).execute();
 
-  await prisma.transaction.createMany({ data: rows });
+  // Monthly budgets for the last 3 months
+  for (let offset = 2; offset >= 0; offset--) {
+    const ref = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - offset, 1));
+    await budgetService.createBudget(core, user.id, {
+      year: ref.getUTCFullYear(),
+      month: ref.getUTCMonth() + 1,
+      totalAmount: 30000,
+      notes: 'Keep discretionary spending in check',
+      categories: [
+        { categoryId: categoryId('EXPENSE', 'Rent'), amount: 12000 },
+        { categoryId: categoryId('EXPENSE', 'Food'), amount: 5000 },
+        { categoryId: categoryId('EXPENSE', 'Bills'), amount: 4000 },
+        { categoryId: categoryId('EXPENSE', 'Transport'), amount: 2500 },
+        { categoryId: categoryId('EXPENSE', 'Shopping'), amount: 3000 },
+        { categoryId: categoryId('EXPENSE', 'Entertainment'), amount: 1500 },
+      ],
+    });
+  }
 
-  const inMonths = (m: number) => utcDate(now.getUTCFullYear(), now.getUTCMonth() + 1 + m, 1);
-  await prisma.financialGoal.createMany({
-    data: [
-      { userId: user.id, name: 'New Laptop', targetAmount: 80000, currentAmount: 35000, targetDate: inMonths(5), description: 'MacBook Air for work and side projects', color: '#4f46e5' },
-      { userId: user.id, name: 'Emergency Fund', targetAmount: 150000, currentAmount: 92000, targetDate: inMonths(10), description: '6 months of essential expenses', color: '#059669' },
-      { userId: user.id, name: 'Goa Vacation', targetAmount: 40000, currentAmount: 12500, targetDate: inMonths(3), description: 'Trip with friends in winter', color: '#d97706' },
-    ],
-  });
+  const inMonths = (m: number) => isoDate(now.getUTCFullYear(), now.getUTCMonth() + 1 + m, 1);
+  const goals = [
+    { name: 'New Laptop', targetAmount: 80000, currentAmount: 35000, targetDate: inMonths(5), description: 'MacBook Air for work and side projects', color: '#4f46e5' },
+    { name: 'Emergency Fund', targetAmount: 150000, currentAmount: 92000, targetDate: inMonths(10), description: '6 months of essential expenses', color: '#059669' },
+    { name: 'Goa Vacation', targetAmount: 40000, currentAmount: 12500, targetDate: inMonths(3), description: 'Trip with friends in winter', color: '#d97706' },
+  ];
+  for (const goal of goals) await goalService.createGoal(core, user.id, goal);
 
-  await prisma.notification.create({
-    data: {
-      userId: user.id,
-      type: 'SYSTEM',
-      title: 'Welcome to Finora 👋',
-      message: 'Your demo account is loaded with 6 months of sample data. Explore the dashboard!',
-    },
-  });
+  const recurringCount = await db
+    .selectFrom('Transaction')
+    .select((eb) => eb.fn.countAll<number>().as('n'))
+    .where('userId', '=', user.id)
+    .where('recurringId', 'is not', null)
+    .executeTakeFirstOrThrow();
 
-  console.log(`✅ Seeded ${rows.length} transactions, 3 budgets and 3 goals.`);
+  console.log(`✅ Seeded ${rows.length + Number(recurringCount.n)} transactions (${recurringCount.n} from 3 recurring rules), 3 budgets and 3 goals.`);
   console.log(`   Login: ${DEMO_EMAIL} / ${DEMO_PASSWORD}`);
 }
 
 main()
   .catch((err) => {
     console.error(err);
-    process.exit(1);
+    process.exitCode = 1;
   })
-  .finally(() => prisma.$disconnect());
+  .finally(() => db.destroy());

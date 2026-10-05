@@ -2,25 +2,33 @@
   "name": "finance-management",
   "version": "1.0.0",
   "private": true,
-  "description": "Full-stack personal finance management system (React + Express + PostgreSQL + Prisma)",
+  "description": "Finora personal finance: web (React + Express + PostgreSQL) and offline desktop/mobile apps (Electron/Capacitor + SQLite) sharing one core",
   "engines": {
     "node": ">=20"
   },
   "workspaces": [
+    "packages/core",
     "server",
     "client"
   ],
   "scripts": {
-    "dev": "concurrently -k -n server,client -c blue,green \"npm run dev -w server\" \"npm run dev -w client\"",
-    "build": "npm run build -w server && npm run build -w client",
+    "dev": "npm run build -w @finora/core && concurrently -k -n core,server,client -c magenta,blue,green \"npm run dev -w @finora/core\" \"npm run dev -w server\" \"npm run dev -w client\"",
+    "build": "npm run build -w @finora/core && npm run build -w server && npm run build -w client",
     "start": "npm run start -w server",
-    "lint": "npm run lint -w server && npm run lint -w client",
-    "test": "npm run test -w server",
+    "lint": "npm run lint -w @finora/core && npm run lint -w server && npm run lint -w client",
+    "test": "npm run test -w @finora/core && npm run test -w server && npm run test -w client",
     "db:local": "npm run db:local -w server",
     "db:migrate": "npm run db:migrate -w server",
     "db:deploy": "npm run db:deploy -w server",
     "db:seed": "npm run db:seed -w server",
-    "db:studio": "npm run db:studio -w server"
+    "db:studio": "npm run db:studio -w server",
+    "desktop:install": "npm ci --prefix desktop",
+    "desktop:start": "npm run start --prefix desktop",
+    "desktop:dev": "npm run dev --prefix desktop",
+    "desktop:dist": "npm run dist --prefix desktop",
+    "mobile:sync": "npm run cap:sync -w client",
+    "mobile:android": "npm run cap:android -w client",
+    "mobile:ios": "npm run cap:ios -w client"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"

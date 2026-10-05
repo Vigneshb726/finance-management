@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import { FilterX, Plus, Receipt, Search, SearchX } from 'lucide-react';
+import { FileDown, FilterX, Plus, Receipt, Search, SearchX } from 'lucide-react';
+import { toast } from 'sonner';
 import { TransactionForm } from '../components/transactions/TransactionForm';
 import { TransactionTable } from '../components/transactions/TransactionTable';
 import { Button } from '../components/ui/Button';
@@ -10,6 +11,9 @@ import { Pagination } from '../components/ui/Pagination';
 import { useCategories, useDeleteTransaction, useTransactions } from '../hooks/queries';
 import { useCurrency } from '../hooks/useCurrency';
 import { useDebounce } from '../hooks/useDebounce';
+import { saveFile } from '../platform/files';
+import { getErrorMessage } from '../services/api';
+import { transactionsApi } from '../services/endpoints';
 import type { PaymentMethod, Transaction, TransactionFilters, TransactionType } from '../types';
 import { PAYMENT_METHODS } from '../utils/constants';
 
@@ -41,15 +45,37 @@ export default function TransactionsPage() {
     setFormOpen(true);
   };
 
+  const [exporting, setExporting] = useState(false);
+  /** Exports every transaction matching the current search and filters (not just this page). */
+  const exportCsv = async () => {
+    setExporting(true);
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { page, pageSize, ...exportFilters } = query;
+      const { filename, content } = await transactionsApi.exportCsv(exportFilters);
+      const result = await saveFile({ filename, data: content, mimeType: 'text/csv', filter: { name: 'CSV file', extensions: ['csv'] } });
+      if (result.status === 'saved') toast.success(result.location ? `Exported to ${result.location}` : 'CSV exported');
+    } catch (err) {
+      toast.error(getErrorMessage(err, 'Could not export transactions'));
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <>
       <PageHeader
         title="Transactions"
         description="Search, filter and manage every income and expense."
         actions={
-          <Button onClick={openCreate}>
-            <Plus className="h-4 w-4" /> Add transaction
-          </Button>
+          <>
+            <Button variant="outline" onClick={exportCsv} loading={exporting} disabled={!data?.pagination.total}>
+              {!exporting && <FileDown className="h-4 w-4" />} Export CSV
+            </Button>
+            <Button onClick={openCreate}>
+              <Plus className="h-4 w-4" /> Add transaction
+            </Button>
+          </>
         }
       />
 

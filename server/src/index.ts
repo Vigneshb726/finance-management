@@ -1,9 +1,10 @@
+import { sql } from '@finora/core';
 import { env } from './config/env';
-import { prisma } from './config/prisma';
+import { db } from './config/db';
 import { createApp } from './app';
 
 async function main() {
-  await prisma.$connect();
+  await sql`SELECT 1`.execute(db); // fail fast if the database is unreachable
   const server = createApp().listen(env.PORT, () => {
     console.log(`🚀 API ready at http://localhost:${env.PORT}/api (${env.NODE_ENV})`);
   });
@@ -11,7 +12,7 @@ async function main() {
   const shutdown = async (signal: string) => {
     console.log(`\n${signal} received, shutting down...`);
     server.close();
-    await prisma.$disconnect();
+    await db.destroy();
     process.exit(0);
   };
   process.on('SIGINT', () => void shutdown('SIGINT'));
@@ -20,6 +21,6 @@ async function main() {
 
 main().catch(async (err) => {
   console.error('❌ Failed to start server:', err instanceof Error ? err.message : err);
-  await prisma.$disconnect();
+  await db.destroy().catch(() => undefined);
   process.exit(1);
 });

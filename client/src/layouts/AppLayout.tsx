@@ -4,12 +4,15 @@ import {
   ArrowLeftRight,
   BarChart3,
   ChevronDown,
+  FileText,
+  HardDrive,
   LayoutDashboard,
   LogOut,
   Menu,
   Moon,
   PiggyBank,
   Plus,
+  Repeat,
   Settings,
   Sun,
   Tags,
@@ -18,6 +21,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
+import { isOfflineApp } from '../services/backend';
 import { authApi } from '../services/endpoints';
 import { TransactionForm } from '../components/transactions/TransactionForm';
 import { Button } from '../components/ui/Button';
@@ -28,9 +32,11 @@ import { NotificationsMenu } from './NotificationsMenu';
 const NAV = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/transactions', label: 'Transactions', icon: ArrowLeftRight },
+  { to: '/recurring', label: 'Recurring', icon: Repeat },
   { to: '/budgets', label: 'Budgets', icon: PiggyBank },
   { to: '/goals', label: 'Goals', icon: Target },
   { to: '/analytics', label: 'Analytics', icon: BarChart3 },
+  { to: '/reports', label: 'Reports', icon: FileText },
   { to: '/categories', label: 'Categories', icon: Tags },
   { to: '/settings', label: 'Settings', icon: Settings },
 ];
@@ -62,10 +68,20 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           </li>
         ))}
       </ul>
-      <div className="m-3 rounded-xl bg-gradient-to-br from-brand-600 to-indigo-800 p-4 text-white">
-        <p className="text-sm font-semibold">Stay on budget</p>
-        <p className="mt-1 text-xs text-brand-100">You'll be notified at 80% and 100% of every budget you set.</p>
-      </div>
+      {isOfflineApp() ? (
+        <div className="m-3 flex gap-2.5 rounded-xl border border-slate-200 p-3 text-xs text-slate-600 dark:border-slate-800 dark:text-slate-400">
+          <HardDrive className="h-4 w-4 shrink-0 text-emerald-600" />
+          <p>
+            <span className="font-medium text-slate-900 dark:text-white">Works offline.</span> Your data is stored encrypted on this
+            device. Back it up from Settings.
+          </p>
+        </div>
+      ) : (
+        <div className="m-3 rounded-xl bg-gradient-to-br from-brand-600 to-indigo-800 p-4 text-white">
+          <p className="text-sm font-semibold">Stay on budget</p>
+          <p className="mt-1 text-xs text-brand-100">You'll be notified at 80% and 100% of every budget you set.</p>
+        </div>
+      )}
     </nav>
   );
 }
@@ -158,7 +174,7 @@ export function AppLayout() {
   return (
     <div className="min-h-screen">
       {/* Desktop sidebar */}
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 border-r border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 lg:block">
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 overflow-y-auto border-r border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 lg:block print:!hidden">
         <Sidebar />
       </aside>
 
@@ -179,8 +195,8 @@ export function AppLayout() {
         </div>
       )}
 
-      <div className="lg:pl-64">
-        <header className="sticky top-0 z-20 flex h-16 items-center gap-3 border-b border-slate-200 bg-white/80 px-4 backdrop-blur-md dark:border-slate-800 dark:bg-slate-900/80 sm:px-6">
+      <div className="lg:pl-64 print:!pl-0">
+        <header className="sticky top-0 z-20 flex h-16 items-center gap-3 border-b border-slate-200 bg-white/80 px-4 backdrop-blur-md dark:border-slate-800 dark:bg-slate-900/80 sm:px-6 print:hidden">
           <button
             onClick={() => setMobileOpen(true)}
             className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 lg:hidden"

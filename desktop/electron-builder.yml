@@ -1,0 +1,65 @@
+# Installers for Windows (NSIS), macOS (DMG) and Linux (AppImage + deb).
+# Build on each OS — the GitHub Actions workflow does all three.
+appId: app.finora.finance
+productName: Finora
+copyright: Copyright © Finora
+directories:
+  output: release
+  buildResources: build
+files:
+  - dist/**/*
+  - renderer/**/*
+  - package.json
+  - "!**/*.map"
+asarUnpack:
+  - "**/*.node"
+# The only runtime dependency is a Node-API module with prebuilt binaries — no native rebuild needed
+npmRebuild: false
+
+# Harden the Electron runtime: no "run as Node", no inspector flags, app code only from the
+# integrity-checked asar archive
+electronFuses:
+  runAsNode: false
+  enableCookieEncryption: true
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true
+  grantFileProtocolExtraPrivileges: false
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: build/icon.png
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  artifactName: Finora-Setup-${version}.${ext}
+
+mac:
+  category: public.app-category.finance
+  icon: build/icon.png
+  target:
+    - target: dmg
+      arch: [x64, arm64]
+  hardenedRuntime: true
+  # Signing and notarization run only when Apple credentials are provided (see README)
+  notarize: false
+dmg:
+  artifactName: Finora-${version}-${arch}.${ext}
+
+linux:
+  category: Office;Finance
+  icon: build/icon.png
+  synopsis: Personal finance manager that works offline
+  target:
+    - AppImage
+    - deb
+  maintainer: Finora <support@finora.app>
+appImage:
+  artifactName: Finora-${version}-${arch}.${ext}
+deb:
+  artifactName: finora_${version}_${arch}.${ext}

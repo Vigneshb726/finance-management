@@ -12,5 +12,4 @@ export const validateBody =
   };
 
 /** Parses query-string parameters; ZodErrors are turned into 400s by the error handler. */
-export const parseQuery = <T extends ZodTypeAny>(schema: T, query: unknown): z.infer<T> =>
-  schema.parse(query);
+export const parseQuery = <T extends ZodTypeAny>(schema: T, query: unknown): z.infer<T> => schema.parse(query);

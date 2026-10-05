@@ -32,6 +32,8 @@
   }
   body {
     @apply bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100;
+    /* Keep content clear of phone notches and system bars (installed mobile app) */
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
   }
   * {
     @apply border-slate-200 dark:border-slate-800;
@@ -67,4 +69,24 @@
 }
 .scrollbar-thin::-webkit-scrollbar-thumb {
   @apply rounded-full bg-slate-300 dark:bg-slate-700;
+}
+
+/* Printing a report: only the report sheet, on white paper */
+@media print {
+  @page {
+    margin: 14mm;
+  }
+  body {
+    background: #fff !important;
+    padding: 0;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .print-sheet {
+    box-shadow: none !important;
+    border: none !important;
+    color: #0f172a !important;
+    background: #fff !important;
+  }
 }

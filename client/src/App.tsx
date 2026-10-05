@@ -8,6 +8,8 @@ import RegisterPage from './pages/RegisterPage';
 
 const DashboardPage = lazy(() => import('./pages/DashboardPage'));
 const TransactionsPage = lazy(() => import('./pages/TransactionsPage'));
+const RecurringPage = lazy(() => import('./pages/RecurringPage'));
+const ReportsPage = lazy(() => import('./pages/ReportsPage'));
 const BudgetsPage = lazy(() => import('./pages/BudgetsPage'));
 const GoalsPage = lazy(() => import('./pages/GoalsPage'));
 const AnalyticsPage = lazy(() => import('./pages/AnalyticsPage'));
@@ -46,6 +48,8 @@ export default function App() {
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/transactions" element={<TransactionsPage />} />
+          <Route path="/recurring" element={<RecurringPage />} />
+          <Route path="/reports" element={<ReportsPage />} />
           <Route path="/budgets" element={<BudgetsPage />} />
           <Route path="/goals" element={<GoalsPage />} />
           <Route path="/analytics" element={<AnalyticsPage />} />

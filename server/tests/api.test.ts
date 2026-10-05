@@ -3,9 +3,10 @@
  * Each run uses a unique throwaway user that is deleted afterwards.
  */
 import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'vitest';
+import { sql, TABLE_COLUMNS } from '@finora/core';
 import { createApp } from '../src/app';
-import { prisma } from '../src/config/prisma';
+import { db } from '../src/config/db';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -23,13 +24,20 @@ const day = (d: number) => `${year}-${String(month).padStart(2, '0')}-${String(d
 let foodId = '';
 let salaryId = '';
 
-beforeAll(async () => {
-  await prisma.$connect();
+afterAll(async () => {
+  await db.deleteFrom('User').where('email', 'in', [email, `restore-${email}`]).execute();
+  await db.destroy();
 });
 
-afterAll(async () => {
-  await prisma.user.deleteMany({ where: { email } });
-  await prisma.$disconnect();
+describe('schema', () => {
+  it('matches the shared column list for every table', async () => {
+    for (const [table, columns] of Object.entries(TABLE_COLUMNS)) {
+      const { rows } = await sql<{ column_name: string }>`
+        SELECT column_name FROM information_schema.columns
+        WHERE table_schema = current_schema() AND table_name = ${table}`.execute(db);
+      expect(rows.map((r) => r.column_name).sort(), table).toEqual(Object.keys(columns).sort());
+    }
+  });
 });
 
 describe('auth', () => {
@@ -190,6 +198,72 @@ describe('goals', () => {
   });
 });
 
+describe('recurring transactions', () => {
+  it('creates due occurrences once and keeps them when the rule is deleted', async () => {
+    const body = {
+      type: 'EXPENSE', amount: 250.5, categoryId: foodId, description: 'Milk subscription', frequency: 'DAILY',
+      startDate: day(1), endDate: day(2),
+    };
+    const invalid = await request(app).post('/api/recurring').set(auth()).send({ ...body, endDate: '2000-01-01' });
+    expect(invalid.status).toBe(400);
+
+    const created = await request(app).post('/api/recurring').set(auth()).send(body);
+    expect(created.status).toBe(201);
+    const expected = Math.min(now.getUTCDate(), 2);
+    expect(created.body).toMatchObject({ amount: 250.5, occurrenceCount: expected });
+
+    const list = await request(app).get('/api/transactions?search=milk').set(auth());
+    expect(list.body.pagination.total).toBe(expected);
+    expect(list.body.totals.expense).toBe(250.5 * expected);
+
+    expect((await request(app).get('/api/recurring').set(auth())).body).toHaveLength(1);
+    await request(app).delete(`/api/recurring/${created.body.id}`).set(auth()).expect(204);
+    const kept = await request(app).get('/api/transactions?search=milk').set(auth());
+    expect(kept.body.pagination.total).toBe(expected);
+    for (const t of kept.body.data) await request(app).delete(`/api/transactions/${t.id}`).set(auth()).expect(204);
+  });
+});
+
+describe('exports, reports and backups', () => {
+  it('downloads transactions as CSV', async () => {
+    const res = await request(app).get('/api/transactions/export?type=INCOME').set(auth());
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('text/csv');
+    expect(res.headers['content-disposition']).toMatch(/attachment; filename="finora-transactions-/);
+    expect(res.text).toContain(`${day(1)},Income,Salary,Salary,45000.00,45000.00,Bank transfer,,No`);
+  });
+
+  it('returns monthly report data', async () => {
+    const res = await request(app).get(`/api/reports/monthly?year=${year}&month=${month}`).set(auth());
+    expect(res.status).toBe(200);
+    expect(res.body.summary).toMatchObject({ income: 45000, expenses: 100, netSavings: 44900 });
+    expect(res.body.budget).toMatchObject({ amount: 20000, spent: 100 });
+    expect((await request(app).get('/api/reports/monthly').set(auth())).status).toBe(400);
+  });
+
+  it('backs up and restores into another account', async () => {
+    const backup = await request(app).get('/api/backup').set(auth());
+    expect(backup.status).toBe(200);
+    expect(backup.body).toMatchObject({ app: 'finora', amountsIn: 'paise' });
+
+    const other = await request(app)
+      .post('/api/auth/register')
+      .send({ name: 'Restore', email: `restore-${email}`, password });
+    const otherAuth = { Authorization: `Bearer ${other.body.token}` };
+
+    const restored = await request(app).post('/api/backup/restore').set(otherAuth).send(backup.body);
+    expect(restored.status).toBe(200);
+    expect(restored.body.transactions).toBe(backup.body.transactions.length);
+
+    const mine = (await request(app).get(`/api/analytics/summary?year=${year}&month=${month}`).set(auth())).body;
+    const theirs = (await request(app).get(`/api/analytics/summary?year=${year}&month=${month}`).set(otherAuth)).body;
+    expect(theirs.totalBalance).toBe(mine.totalBalance);
+
+    const invalid = await request(app).post('/api/backup/restore').set(otherAuth).send({ app: 'other' });
+    expect(invalid.status).toBe(400);
+  });
+});
+
 describe('data isolation', () => {
   it("prevents access to another user's data", async () => {
     const other = await request(app)
@@ -202,6 +276,6 @@ describe('data isolation', () => {
     expect((await request(app).delete(`/api/transactions/${mine.id}`).set(otherAuth)).status).toBe(404);
     expect((await request(app).get('/api/transactions').set(otherAuth)).body.data).toHaveLength(0);
 
-    await prisma.user.deleteMany({ where: { email: `other-${email}` } });
+    await db.deleteFrom('User').where('email', '=', `other-${email}`).execute();
   });
 });

@@ -6,7 +6,7 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import { env, isProduction } from './config/env';
 import { errorHandler, notFound } from './middleware/errorHandler';
-import routes from './routes';
+import routes, { BACKUP_RESTORE_PATH } from './routes';
 
 export function createApp() {
   const app = express();
@@ -20,9 +20,12 @@ export function createApp() {
       origin: env.CLIENT_URL.split(',').map((o) => o.trim()),
       methods: ['GET', 'POST', 'PUT', 'DELETE'],
       allowedHeaders: ['Content-Type', 'Authorization'],
+      exposedHeaders: ['Content-Disposition'],
     }),
   );
-  app.use(express.json({ limit: '100kb' }));
+  // Small JSON bodies everywhere except backup restore, which parses its own (larger) body
+  const json = express.json({ limit: '100kb' });
+  app.use((req, res, next) => (req.path === `/api${BACKUP_RESTORE_PATH}` ? next() : json(req, res, next)));
   if (env.NODE_ENV !== 'test') app.use(morgan(isProduction ? 'combined' : 'dev'));
 
   app.get('/api/health', (_req, res) => {

@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, ArrowUpDown, Pencil, StickyNote, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, ArrowUpDown, Pencil, Repeat, StickyNote, Trash2 } from 'lucide-react';
 import { useCurrency } from '../../hooks/useCurrency';
 import type { Transaction, TransactionFilters } from '../../types';
 import { cn } from '../../utils/cn';
@@ -92,6 +92,11 @@ export function TransactionTable({ transactions, sortBy, sortOrder, onSort, onEd
                 <td className="max-w-[280px] px-5 py-3.5">
                   <div className="flex items-center gap-1.5">
                     <span className="truncate font-medium text-slate-900 dark:text-white">{t.description}</span>
+                    {t.recurringId && (
+                      <span title="Added by a recurring transaction" className="text-brand-500">
+                        <Repeat className="h-3.5 w-3.5" aria-label="Recurring" />
+                      </span>
+                    )}
                     {t.notes && (
                       <span title={t.notes} className="text-slate-400">
                         <StickyNote className="h-3.5 w-3.5" aria-label="Has notes" />
@@ -156,7 +161,10 @@ export function TransactionTable({ transactions, sortBy, sortOrder, onSort, onEd
           <li key={t.id} className="flex items-center gap-3 px-4 py-3">
             <CategoryIcon icon={t.category.icon} color={t.category.color} />
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium text-slate-900 dark:text-white">{t.description}</p>
+              <p className="flex items-center gap-1 truncate text-sm font-medium text-slate-900 dark:text-white">
+                <span className="truncate">{t.description}</span>
+                {t.recurringId && <Repeat className="h-3 w-3 shrink-0 text-brand-500" aria-label="Recurring" />}
+              </p>
               <p className="truncate text-xs text-slate-500 dark:text-slate-400">
                 {t.category.name} · {formatDate(t.date, { day: 'numeric', month: 'short' })} · {paymentLabel(t.paymentMethod)}
               </p>
