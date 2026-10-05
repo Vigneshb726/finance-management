@@ -1,0 +1,163 @@
+// Finance Management System — database schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum TransactionType {
+  INCOME
+  EXPENSE
+}
+
+enum PaymentMethod {
+  CASH
+  UPI
+  CREDIT_CARD
+  DEBIT_CARD
+  BANK_TRANSFER
+  OTHER
+}
+
+enum NotificationType {
+  BUDGET_EXCEEDED
+  BUDGET_WARNING
+  GOAL_MILESTONE
+  MONTHLY_SUMMARY
+  SYSTEM
+}
+
+enum ThemePreference {
+  LIGHT
+  DARK
+  SYSTEM
+}
+
+model User {
+  id                   String          @id @default(cuid())
+  name                 String
+  email                String          @unique
+  passwordHash         String
+  currency             String          @default("INR")
+  theme                ThemePreference @default(SYSTEM)
+  notifyBudgetAlerts   Boolean         @default(true)
+  notifyGoalMilestones Boolean         @default(true)
+  notifyMonthlySummary Boolean         @default(true)
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+
+  transactions  Transaction[]
+  categories    Category[]
+  budgets       Budget[]
+  goals         FinancialGoal[]
+  notifications Notification[]
+}
+
+model Category {
+  id        String          @id @default(cuid())
+  name      String
+  type      TransactionType @default(EXPENSE)
+  color     String          @default("#64748b")
+  icon      String          @default("tag")
+  isDefault Boolean         @default(false)
+  userId    String
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions     Transaction[]
+  budgetCategories BudgetCategory[]
+
+  @@unique([userId, type, name])
+  @@index([userId, type])
+}
+
+model Transaction {
+  id            String          @id @default(cuid())
+  type          TransactionType
+  amount        Decimal         @db.Decimal(14, 2)
+  description   String
+  date          DateTime        @db.Date
+  paymentMethod PaymentMethod   @default(CASH)
+  notes         String?
+  categoryId    String
+  userId        String
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // NoAction (checked at end of statement) lets user deletion cascade cleanly,
+  // while the API reassigns transactions before a category is deleted.
+  category Category @relation(fields: [categoryId], references: [id], onDelete: NoAction)
+
+  @@index([userId, date(sort: Desc)])
+  @@index([userId, type, date])
+  @@index([categoryId])
+}
+
+model Budget {
+  id          String   @id @default(cuid())
+  userId      String
+  month       Int // 1-12
+  year        Int
+  totalAmount Decimal  @db.Decimal(14, 2)
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  categories BudgetCategory[]
+
+  @@unique([userId, year, month])
+}
+
+model BudgetCategory {
+  id         String  @id @default(cuid())
+  budgetId   String
+  categoryId String
+  amount     Decimal @db.Decimal(14, 2)
+
+  budget   Budget   @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([budgetId, categoryId])
+  @@index([categoryId])
+}
+
+model FinancialGoal {
+  id            String    @id @default(cuid())
+  userId        String
+  name          String
+  targetAmount  Decimal   @db.Decimal(14, 2)
+  currentAmount Decimal   @default(0) @db.Decimal(14, 2)
+  targetDate    DateTime? @db.Date
+  description   String?
+  color         String    @default("#4f46e5")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  type      NotificationType
+  title     String
+  message   String
+  isRead    Boolean          @default(false)
+  // Prevents duplicate alerts (e.g. one "budget exceeded" per budget scope)
+  dedupeKey String?
+  createdAt DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, dedupeKey])
+  @@index([userId, isRead, createdAt(sort: Desc)])
+}
