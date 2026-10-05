@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "description": "Full-stack personal finance management system (React + Express + PostgreSQL + Prisma)",
+  "engines": {
+    "node": ">=20"
+  },
   "workspaces": [
     "server",
     "client"

@@ -135,6 +135,17 @@ Open **http://localhost:5173**.
 |---|---|
 | `demo@finance.app` | `Demo@1234` |
 
+## Deploying to Render
+
+`render.yaml` is a Render Blueprint. It creates a free PostgreSQL database and one Node web service that serves both the API and the built React app from the same URL.
+
+1. Push this folder to a GitHub (or GitLab) repository.
+2. In the [Render dashboard](https://dashboard.render.com) choose **New → Blueprint**, select the repo, and click **Apply**.
+3. Render builds the app, runs `prisma migrate deploy`, and (while `SEED_DEMO_DATA=true`) seeds the demo account. `JWT_SECRET` is generated automatically.
+4. Open the `https://finora-xxxx.onrender.com` URL shown on the service.
+
+Set `SEED_DEMO_DATA` to `false` before real use. Otherwise the demo account is reset on every deploy and anyone can log in with the public demo password. On the free plan the service sleeps after about 15 minutes idle (the first request then takes up to a minute), and the free database expires after 30 days.
+
 ## Scripts
 
 | Command | What it does |

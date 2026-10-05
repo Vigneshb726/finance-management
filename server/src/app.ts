@@ -12,6 +12,8 @@ export function createApp() {
   const app = express();
 
   app.disable('x-powered-by');
+  // Behind a hosting proxy (Render, etc.) so rate limiting sees the real client IP
+  if (isProduction) app.set('trust proxy', 1);
   app.use(helmet());
   app.use(
     cors({
