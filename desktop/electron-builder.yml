@@ -58,7 +58,7 @@ linux:
   target:
     - AppImage
     - deb
-  maintainer: Finora <support@finora.app>
+  maintainer: Finora <finora@users.noreply.github.com>
 appImage:
   artifactName: Finora-${version}-${arch}.${ext}
 deb:

@@ -51,12 +51,10 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             desktop/package-lock.json
-      - run: npm ci
-      - run: npm ci --prefix desktop
-      - name: Skip code signing when no certificate is configured
-        if: env.CSC_LINK == ''
-        shell: bash
-        run: echo "CSC_IDENTITY_AUTO_DISCOVERY=false" >> "$GITHUB_ENV"
+      # --ignore-scripts: the SQLite drivers ship prebuilt Node-API binaries, so npm must not try to
+      # compile them (node-gyp), and the Electron binary is downloaded by electron-builder itself
+      - run: npm ci --ignore-scripts
+      - run: npm ci --ignore-scripts --prefix desktop
       - name: Enable notarization when Apple credentials are configured
         if: runner.os == 'macOS' && env.APPLE_ID != '' && env.CSC_LINK != ''
         shell: bash
@@ -64,7 +62,12 @@ jobs:
       - name: Build installer
         working-directory: desktop
         shell: bash
-        run: npm run build && npx electron-builder ${{ matrix.target }} --publish never $NOTARIZE_ARGS
+        run: |
+          # Unset secrets that are not configured: electron-builder treats an empty CSC_LINK as a file path
+          if [ -z "$CSC_LINK" ]; then unset CSC_LINK CSC_KEY_PASSWORD; export CSC_IDENTITY_AUTO_DISCOVERY=false; fi
+          for v in APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do [ -z "${!v}" ] && unset "$v"; done
+          npm run build
+          npx electron-builder ${{ matrix.target }} --publish never $NOTARIZE_ARGS
       - uses: actions/upload-artifact@v4
         with:
           name: finora-desktop-${{ runner.os }}

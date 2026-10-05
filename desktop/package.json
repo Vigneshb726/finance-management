@@ -3,7 +3,11 @@
   "productName": "Finora",
   "version": "1.0.0",
   "description": "Finora personal finance — offline desktop app for Windows, macOS and Linux",
-  "author": "Finora",
+  "author": {
+    "name": "Finora",
+    "email": "finora@users.noreply.github.com"
+  },
+  "homepage": "https://github.com/Vigneshb726/finance-management",
   "license": "UNLICENSED",
   "private": true,
   "main": "dist/main.js",
